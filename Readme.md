@@ -12,7 +12,7 @@ Use your Android phone as a wireless microphone on your Desktop.
 The Android app captures audio from the microphone and streams it over UDP to the desktop server, which plays it back through any output device on the PC. A handshake ensures the server is ready before streaming begins.
 
 ```
-[Android mic] ──UDP──▶ [Windows server] ──▶ [speakers / headphones / virtual cable]
+[Android mic] ──UDP──▶ [Desktop server] ──▶ [speakers / headphones / virtual cable]
 ```
 
 ## Projects
