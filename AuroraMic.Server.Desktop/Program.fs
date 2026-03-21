@@ -10,7 +10,6 @@ module Program =
     let main(args: string[]) =
         AppBuilder
             .Configure<App>()
-            
             .UsePlatformDetect()
             .UseSkia()
             .StartWithClassicDesktopLifetime(args)

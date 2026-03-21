@@ -1,11 +1,8 @@
 namespace AuroraMic.Client.Android
 
-open System
-open System.IO
 open Android.App
 open Android.Content
 open Android.Content.PM
-open Android.Media.Audiofx
 open Android.OS
 open Avalonia
 open Avalonia.Android
@@ -36,8 +33,9 @@ type AudioStreamingService() =
                 NotificationImportance.Low
             )
             channel.Description <- "Keeps audio streaming active"
-            let manager = this.GetSystemService(Context.NotificationService) :?> NotificationManager
-            manager.CreateNotificationChannel(channel)
+            match this.GetSystemService(Context.NotificationService) with
+            | :? NotificationManager as manager -> manager.CreateNotificationChannel(channel)
+            | _ -> ()
     
     member private this.BuildNotification() =
         let builder = new Notification.Builder(this, channelId)
@@ -73,7 +71,6 @@ module ForegroundServiceHelper =
 type MainActivity() =
     inherit AvaloniaMainActivity<App>()
     
-
     override this.CustomizeAppBuilder(builder) =
         base.CustomizeAppBuilder(builder)
             .WithInterFont()
@@ -83,19 +80,8 @@ type MainActivity() =
     
     override this.OnCreate(savedInstanceState) =
         base.OnCreate(savedInstanceState)
-        let disableAudioEffects () =
-        // AudioRecord session 0 aplica a todos los streams de captura activos
-            if AutomaticGainControl.IsAvailable then
-                try
-                    use agc = AutomaticGainControl.Create(0)
-                    agc.SetEnabled(false) |> ignore
-                with _ -> ()
-            
-            if NoiseSuppressor.IsAvailable then
-                try
-                    use ns = NoiseSuppressor.Create(0)
-                    ns.SetEnabled(false) |> ignore
-                with _ -> () 
+        
+
         let permissionsToRequest = [|
             yield Android.Manifest.Permission.RecordAudio
             if Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu then
@@ -107,7 +93,6 @@ type MainActivity() =
         |> function
            | [||] -> ()
            | denied -> this.RequestPermissions(denied, 0)
-        AndroidMic.onRecordingStarted <- Some disableAudioEffects
         AndroidMic.setCallbacks
             (fun () -> ForegroundServiceHelper.startService this)
             (fun () -> ForegroundServiceHelper.stopService this)

@@ -4,9 +4,6 @@ open System
 open System.Net
 open System.Net.Sockets
 open System.Runtime.InteropServices
-open System.Threading
-open System.Threading.Channels
-open System.Threading.Tasks
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.ApplicationLifetimes
@@ -33,6 +30,7 @@ module AndroidMic =
     let mutable onStopCallback: (unit -> unit) option = None
 
     let isRunning () = recorder.IsSome
+
     let private checkServerReady (udp: UdpClient) (serverEndpoint: IPEndPoint) =
         try
             let request = Text.Encoding.ASCII.GetBytes("RECV")
@@ -44,17 +42,30 @@ module AndroidMic =
             udp.Client.ReceiveTimeout <- 0
             
             Text.Encoding.ASCII.GetString(response) = "REDY"
-        with
-        | _ -> false
+        with _ -> false
 
-    
-    
     let setCallbacks onStart onStop =
         onStartCallback <- Some onStart
         onStopCallback <- Some onStop
-        
-       
+
+    let stop () =
+        recorder |> Option.iter (fun r -> r.StopRecordingAsync().Wait(1000) |> ignore)
+        device |> Option.iter _.Dispose()
+        engine |> Option.iter (fun e -> e.Dispose())
+        udpClient |> Option.iter (fun u -> u.Close())
+        recorder <- None
+        device <- None
+        engine <- None
+        udpClient <- None
+        onStopCallback |> Option.iter (fun cb -> cb())
+
     let start (serverIp: string) (serverPort: int) =
+        if isRunning() then stop()
+
+        match IPAddress.TryParse(serverIp) with
+        | false, _ -> raise (InvalidOperationException("Invalid IP address format"))
+        | true, _ ->
+
         let eng = new MiniAudioEngine()
         let captureDevice = 
             eng.CaptureDevices 
@@ -80,12 +91,13 @@ module AndroidMic =
             eng.Dispose()
             raise (InvalidOperationException("Server not ready to receive audio"))
             
-        let sendAudio : AudioProcessCallback =
+        let sendAudio =
             AudioProcessCallback(fun samples _ ->
-                let audioBytes = MemoryMarshal.Cast<float32, byte>(samples).ToArray()
-                udp.Send(audioBytes, audioBytes.Length, serverEndpoint) |> ignore
+                try
+                    let audioBytes = MemoryMarshal.Cast<float32, byte>(samples).ToArray()
+                    udp.Send(audioBytes, audioBytes.Length, serverEndpoint) |> ignore
+                with :? SocketException -> ()
             )
-
 
         let recorderInstance = new Recorder(capDevice, sendAudio)
         recorder <- Some recorderInstance
@@ -93,17 +105,6 @@ module AndroidMic =
         onRecordingStarted |> Option.iter (fun cb -> cb())
         recorderInstance.StartRecording() |> ignore
         onStartCallback |> Option.iter (fun cb -> cb())
-    
-    let stop () =
-        recorder |> Option.iter (fun r -> r.StopRecordingAsync().Wait(1000) |> ignore)
-        device |> Option.iter _.Dispose()
-        engine |> Option.iter (fun e -> e.Dispose())
-        udpClient |> Option.iter (fun u -> u.Close())
-        recorder <- None
-        device <- None
-        engine <- None
-        udpClient <- None
-        onStopCallback |> Option.iter (fun cb -> cb())
     
 module MainView =
     let view () =
@@ -114,11 +115,8 @@ module MainView =
             let errorMsg = ctx.useState ""
             let rtt = ctx.useState TimeSpan.Zero
 
-            
-            
             DockPanel.create [
                 DockPanel.children [
-                    // Header
                     Border.create [
                         DockPanel.dock Dock.Top
                         Border.background "#8b5cf6"
@@ -139,7 +137,6 @@ module MainView =
                         )
                     ]
 
-                    // Button
                     Border.create [
                         DockPanel.dock Dock.Bottom
                         Border.padding (24.0, 20.0)
@@ -175,14 +172,12 @@ module MainView =
                         )
                     ]
 
-                    // Content
                     ScrollViewer.create [
                         ScrollViewer.padding (24.0, 20.0)
                         ScrollViewer.content (
                             StackPanel.create [
                                 StackPanel.spacing 20.0
                                 StackPanel.children [
-                                    // Status
                                     Border.create [
                                         Border.background "#1f2937"
                                         Border.cornerRadius 12.0
@@ -244,7 +239,6 @@ module MainView =
                                         )
                                     ]
 
-                                    // Settings
                                     Border.create [
                                         Border.background "#1f2937"
                                         Border.cornerRadius 12.0

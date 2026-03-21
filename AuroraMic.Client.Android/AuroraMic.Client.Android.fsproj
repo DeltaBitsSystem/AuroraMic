@@ -8,8 +8,7 @@
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
-    <AndroidSdkDirectory>/home/pablo/Android/Sdk/</AndroidSdkDirectory>
-    <JavaSdkDirectory>/usr/lib/jvm/java-17-openjdk</JavaSdkDirectory>
+
     <AndroidLinkMode>SdkOnly</AndroidLinkMode>
   </PropertyGroup>
  

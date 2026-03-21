@@ -12,7 +12,9 @@
     <DebugType>embedded</DebugType>
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
-
+  <PropertyGroup>
+    <ApplicationIcon>Icon.ico</ApplicationIcon>  
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.fs" />
   </ItemGroup>

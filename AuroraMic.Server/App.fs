@@ -28,19 +28,19 @@ open SoundFlow.Visualization
 module Config =
     type Settings = { Port: int; OutputDevice: string }
     
-    let private path = "settings.json"
+    let private settingsPath = "settings.json"
     let private defaults = { Port = 50006; OutputDevice = "" }
     
     let load() =
         try
-            File.ReadAllText(path)
+            File.ReadAllText(settingsPath)
             |> JsonSerializer.Deserialize<Settings>
             |> Option.ofObj
             |> Option.defaultValue defaults
         with _ -> defaults
     
     let save (settings: Settings) =
-        try File.WriteAllText(path, JsonSerializer.Serialize(settings))
+        try File.WriteAllText(settingsPath, JsonSerializer.Serialize(settings))
         with _ -> ()
 
 
@@ -56,8 +56,15 @@ module AudioEngine =
 
     let mutable private state: AudioState option = None
 
+    let stop() =
+        state |> Option.iter (fun s ->
+            [s.Player :> IDisposable; s.Device; s.Provider; s.Visualizer; s.Engine]
+            |> List.iter (fun d -> try d.Dispose() with _ -> ())
+        )
+        state <- None
 
     let start (deviceName: string) : Result<unit, string> =
+        stop()
         try
             let format = SoundFlow.Structs.AudioFormat(
                 Format = SampleFormat.F32, 
@@ -65,12 +72,19 @@ module AudioEngine =
                 Channels = 1)
         
             let engine = new MiniAudioEngine()
+
+            let deviceOpt =
+                if String.IsNullOrEmpty(deviceName) then
+                    engine.PlaybackDevices |> Seq.tryHead
+                else
+                    engine.PlaybackDevices |> Seq.tryFind (fun d -> d.Name = deviceName)
+                    |> Option.orElse (engine.PlaybackDevices |> Seq.tryHead)
             
-            match engine.PlaybackDevices |> Seq.tryFind (fun d -> d.Name = deviceName) with
-            | None -> Error $"Device '{deviceName}' not found"
+            match deviceOpt with
+            | None -> Error "No playback devices found"
             | Some dev ->
                 let device = engine.InitializePlaybackDevice(dev, format)
-                let provider = new QueueDataProvider(format)
+                let provider = new QueueDataProvider(format, 4800, QueueFullBehavior.Drop)
                 let player = new SoundPlayer(engine, format, provider)
                 let visualizer = new WaveformVisualizer()
                 
@@ -88,16 +102,6 @@ module AudioEngine =
         | Some s -> 
             s.Provider.AddSamples(data)
         | None -> ()
-
-
-
-    let stop() =
-        state |> Option.iter (fun s ->
-            [s.Player :> IDisposable; s.Device; s.Provider; s.Visualizer; s.Engine]
-            |> List.iter (fun d -> try d.Dispose() with _ -> ())
-        )
-        state <- None
-
 
 
 module NetworkServer =
@@ -120,7 +124,17 @@ module NetworkServer =
             true
         | _ -> false
     
+    let stop() =
+        cts |> Option.iter _.Cancel()
+        receiveTask |> Option.iter (fun t -> try t.Wait(1000) |> ignore with _ -> ())
+        udpClient |> Option.iter (fun u -> try u.Close(); u.Dispose() with _ -> ())
+        udpClient <- None
+        cts <- None
+        receiveTask <- None
+        serverPort <- 0
+
     let start (port: int) : Result<unit, string> =
+        if isRunning() then stop()
         try
             if port < 1024 || port > 65535 then
                 Error "Port must be between 1024-65535"
@@ -153,15 +167,6 @@ module NetworkServer =
         with 
         | :? SocketException -> Error $"Port {port} is already in use"
         | ex -> Error $"Network error: {ex.Message}"
-    
-    let stop() =
-        cts |> Option.iter _.Cancel()
-        receiveTask |> Option.iter (fun t -> try t.Wait(1000) |> ignore with _ -> ())
-        udpClient |> Option.iter (fun u -> try u.Close(); u.Dispose() with _ -> ())
-        udpClient <- None
-        cts <- None
-        receiveTask <- None
-        serverPort <- 0
 
 
 module NetworkInfo =
@@ -187,7 +192,6 @@ module AudioOutputs =
 
 
 module MainView =
-    // Helper para crear secciones consistentes
     let private section title content =
         Border.create [
             Border.background "#1f2937"
@@ -248,14 +252,12 @@ module MainView =
             let selectedOutput = ctx.useState settings.OutputDevice
             let errorMsg = ctx.useState ""
 
-            
             let ips = NetworkInfo.localIPv4()
             let outputs = AudioOutputs.list()
             
-            if String.IsNullOrEmpty(selectedOutput.Current) && outputs.Length > 0 then
+            let savedOutputIsValid = outputs |> Array.contains selectedOutput.Current
+            if (String.IsNullOrEmpty(selectedOutput.Current) || not savedOutputIsValid) && outputs.Length > 0 then
                 selectedOutput.Set outputs[0]
-            
-            
             
             let startServer() =
                 Config.save { Port = port.Current; OutputDevice = selectedOutput.Current }
@@ -277,11 +279,8 @@ module MainView =
                 isRunning.Set false
                 errorMsg.Set ""
             
-           
-            
             DockPanel.create [
                 DockPanel.children [
-                    // Header
                     Border.create [
                         DockPanel.dock Dock.Top
                         Border.background "#8b5cf6"
@@ -297,7 +296,6 @@ module MainView =
                         )
                     ]
 
-                    // Button
                     Border.create [
                         DockPanel.dock Dock.Bottom
                         Border.padding (24.0, 20.0)
@@ -318,14 +316,12 @@ module MainView =
                         )
                     ]
 
-                    // Content
                     ScrollViewer.create [
                         ScrollViewer.padding (24.0, 20.0)
                         ScrollViewer.content (
                             StackPanel.create [
                                 StackPanel.spacing 20.0
                                 StackPanel.children [
-                                    // Status
                                     section "Status" [
                                         StackPanel.create [
                                             StackPanel.orientation Orientation.Horizontal
@@ -367,28 +363,31 @@ module MainView =
                                             ]
                                     ]
 
-                        
-
-                                    // IPs
                                     section "Connection Addresses" [
-                                        yield! ips |> Seq.map (fun ip ->
-                                            Border.create [
-                                                Border.background "#374151"
-                                                Border.cornerRadius 6.0
-                                                Border.padding (12.0, 8.0)
-                                                Border.child (
-                                                    TextBlock.create [
-                                                        TextBlock.text $"{ip}:{port.Current}"
-                                                        TextBlock.fontSize 14.0
-                                                        TextBlock.foreground "#8b5cf6"
-                                                        TextBlock.fontFamily "Consolas, Monaco, monospace"
-                                                    ]
-                                                )
+                                        if ips.Length = 0 then
+                                            TextBlock.create [
+                                                TextBlock.text "No network interfaces found"
+                                                TextBlock.foreground "#6b7280"
+                                                TextBlock.fontSize 13.0
                                             ] :> Types.IView
-                                        )
+                                        else
+                                            yield! ips |> Seq.map (fun ip ->
+                                                Border.create [
+                                                    Border.background "#374151"
+                                                    Border.cornerRadius 6.0
+                                                    Border.padding (12.0, 8.0)
+                                                    Border.child (
+                                                        TextBlock.create [
+                                                            TextBlock.text $"{ip}:{port.Current}"
+                                                            TextBlock.fontSize 14.0
+                                                            TextBlock.foreground "#8b5cf6"
+                                                            TextBlock.fontFamily "Consolas, Monaco, monospace"
+                                                        ]
+                                                    )
+                                                ] :> Types.IView
+                                            )
                                     ]
 
-                                    // Settings
                                     section "Settings" [
                                         settingField "Audio Output Device" (
                                             ComboBox.create [
@@ -437,6 +436,7 @@ type App() =
     override _.Initialize() =
         base.Styles.Add(FluentTheme())
         base.RequestedThemeVariant <- ThemeVariant.Dark
+        
     override _.OnFrameworkInitializationCompleted() =
         match base.ApplicationLifetime with
         | :? IClassicDesktopStyleApplicationLifetime as desktop ->
