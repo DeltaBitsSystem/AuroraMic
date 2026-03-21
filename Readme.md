@@ -89,7 +89,7 @@ The app requests the following at runtime:
 - **F#** / **.NET 10**
 - **Avalonia 11** + **Avalonia.FuncUI** — UI (desktop + Android)
 - **SoundFlow 1.4** — audio capture and playback via MiniAudio backend
-- **SoundFlow.Extensions.WebRtc.Apm** — AGC/noise suppressor control
+
 
 
 ## Tips
