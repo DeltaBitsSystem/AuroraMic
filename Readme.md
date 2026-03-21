@@ -1,6 +1,11 @@
 # AuroraMic
 
-Use your Android phone as a wireless microphone on your Windows PC — low latency, no drivers, no cables.
+Use your Android phone as a wireless microphone on your Desktop.
+
+## Screenshots
+
+![Server Board](Screenshots/1.png)
+![Client Board](Screenshots/2.png)
 
 ## How it works
 

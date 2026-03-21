@@ -113,7 +113,7 @@ module MainView =
             let serverIp = ctx.useState ""
             let serverPort = ctx.useState 50006
             let errorMsg = ctx.useState ""
-            let rtt = ctx.useState TimeSpan.Zero
+
 
             DockPanel.create [
                 DockPanel.children [
@@ -187,7 +187,8 @@ module MainView =
                                                 StackPanel.spacing 12.0
                                                 StackPanel.children [
                                                     StackPanel.create [
-                                                        StackPanel.orientation Orientation.Vertical
+                                                        StackPanel.orientation Orientation.Horizontal
+                                                       
                                                         StackPanel.spacing 10.0
                                                         StackPanel.children [
                                                             Border.create [
@@ -199,23 +200,14 @@ module MainView =
                                                             ]
                                                             TextBlock.create [
                                                                 TextBlock.text (
-                                                                    if isRunning.Current then $"🎤 Streaming to {serverIp.Current}:{serverPort.Current}"
+                                                                    if isRunning.Current then $"Streaming to {serverIp.Current}:{serverPort.Current}"
                                                                     else "Microphone stopped"
                                                                 )
                                                                 TextBlock.fontSize 16.0
                                                                 TextBlock.fontWeight FontWeight.SemiBold
                                                                 TextBlock.foreground "#f3f4f6"
-                                                            ]
-                                                            if isRunning.Current then
-                                                                let color =
-                                                                    if rtt.Current.TotalMilliseconds > 100.0 then "#ef4444"
-                                                                    elif rtt.Current.TotalMilliseconds > 50.0 then "#f59e0b"
-                                                                    else "#10b981"
-                                                                TextBlock.create [
-                                                                    TextBlock.text $"RTT: {rtt.Current.TotalMilliseconds:F0}ms"
-                                                                    TextBlock.foreground color
-                                                                    TextBlock.fontSize 14.0
-                                                                ]
+                                                                TextBlock.textWrapping TextWrapping.Wrap
+                                                            ] 
                                                         ]
                                                     ]
 
