@@ -47,7 +47,6 @@ Output: single self-contained executable in `bin/Release/net10.0/publish/`.
 dotnet build AuroraMic.Client.Android/AuroraMic.Client.Android.fsproj -c Release
 ```
 
-If the Android SDK path differs from `/home/pablo/Android/Sdk/`, update `AndroidSdkDirectory` in `AuroraMic.Client.Android.fsproj`.
 
 ## Usage
 
