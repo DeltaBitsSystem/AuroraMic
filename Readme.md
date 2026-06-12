@@ -32,16 +32,6 @@ Use your Android phone as a wireless microphone for your desktop computer.
 
 The phone mic audio now plays through your desktop speakers.
 
-### Linux Install (CachyOS / Arch)
-
-```bash
-./install-linux.sh
-auroramic-server
-```
-
-This installs a launcher to `~/.local/bin/auroramic-server` and a desktop entry
-so AuroraMic appears in your application menu.
-
 ## Linux Virtual Audio Setup
 
 On Linux, AuroraMic server plays audio to a PulseAudio/PipeWire sink. To route this
