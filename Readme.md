@@ -68,6 +68,27 @@ pactl list sources short | grep PhoneMic
 
 Then select "PhoneMic" as the input device in your application.
 
+## Linux Installation
+
+Download the AppImage from [Releases](https://github.com/DeltaBitsSystem/AuroraMic/releases) and run the install script:
+
+```bash
+chmod +x AuroraMic-*.AppImage
+chmod +x install.sh
+./install.sh
+```
+
+This copies the AppImage to `~/Applications/`, installs the icon, and creates a desktop entry. AuroraMic will appear in your application menu.
+
+If you prefer manual installation, copy the AppImage to any directory and make it executable:
+
+```bash
+chmod +x AuroraMic-*.AppImage
+./AuroraMic-*.AppImage
+```
+
+Note: AppImages require FUSE2. Install `libfuse2` (Debian/Ubuntu) or `fuse2` (Arch) if needed.
+
 ## Building from Source
 
 ### Prerequisites

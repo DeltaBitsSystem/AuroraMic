@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=AuroraMic
+GenericName=Wireless Microphone Server
+Comment=Use your Android phone as a wireless desktop microphone
+Exec=AuroraMic
+Icon=auroramic
+Terminal=false
+Categories=Audio;Utility;
+Keywords=mic;microphone;stream;audio;phone;
+StartupWMClass=auroramic
