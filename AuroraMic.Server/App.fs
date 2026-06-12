@@ -22,26 +22,33 @@ open SoundFlow.Backends.MiniAudio
 open SoundFlow.Components
 open SoundFlow.Providers
 open SoundFlow.Enums
-open SoundFlow.Visualization
 
 
 module Config =
     type Settings = { Port: int; OutputDevice: string }
     
-    let private settingsPath = "settings.json"
+    let private defaultPath = "settings.json"
     let private defaults = { Port = 50006; OutputDevice = "" }
     
-    let load() =
+    let loadFromFile (filePath: string) =
         try
-            File.ReadAllText(settingsPath)
-            |> JsonSerializer.Deserialize<Settings>
-            |> Option.ofObj
-            |> Option.defaultValue defaults
-        with _ -> defaults
+            let json = File.ReadAllText(filePath)
+            let result : Settings option = 
+                JsonSerializer.Deserialize<Settings>(json) 
+                |> Option.ofObj 
+                |> Option.map (fun s -> 
+                    { Port = s.Port
+                      OutputDevice = if isNull s.OutputDevice then "" else s.OutputDevice })
+            result |> Option.defaultValue defaults
+        with ex -> printfn "Config load error: %s" ex.Message; defaults
     
-    let save (settings: Settings) =
-        try File.WriteAllText(settingsPath, JsonSerializer.Serialize(settings))
-        with _ -> ()
+    let load() = loadFromFile defaultPath
+    
+    let saveToFile (filePath: string) (settings: Settings) =
+        try File.WriteAllText(filePath, JsonSerializer.Serialize(settings))
+        with ex -> printfn "Config save error: %s" ex.Message
+    
+    let save (settings: Settings) = saveToFile defaultPath settings
 
 
 module AudioEngine =
@@ -51,15 +58,14 @@ module AudioEngine =
         Device: IDisposable
         Player: SoundPlayer
         Provider: QueueDataProvider
-        Visualizer: WaveformVisualizer
     }
 
     let mutable private state: AudioState option = None
 
     let stop() =
         state |> Option.iter (fun s ->
-            [s.Player :> IDisposable; s.Device; s.Provider; s.Visualizer; s.Engine]
-            |> List.iter (fun d -> try d.Dispose() with _ -> ())
+            [s.Player :> IDisposable; s.Device; s.Provider; s.Engine]
+            |> List.iter (fun d -> try d.Dispose() with ex -> printfn "Dispose error: %s" ex.Message)
         )
         state <- None
 
@@ -86,13 +92,12 @@ module AudioEngine =
                 let device = engine.InitializePlaybackDevice(dev, format)
                 let provider = new QueueDataProvider(format, 4800, QueueFullBehavior.Drop)
                 let player = new SoundPlayer(engine, format, provider)
-                let visualizer = new WaveformVisualizer()
                 
                 device.MasterMixer.AddComponent(player)
                 device.Start()
                 player.Play()
             
-                state <- Some { Engine = engine; Device = device; Player = player; Provider = provider; Visualizer = visualizer }
+                state <- Some { Engine = engine; Device = device; Player = player; Provider = provider }
                 Ok()     
         with ex ->
             Error $"Audio initialization failed: {ex.Message}"
@@ -116,18 +121,21 @@ module NetworkServer =
     let isRunning() = udpClient.IsSome
     let port() = serverPort
     let lastActivity() = lastReceived
-    
+
+    let validateHandshake (data: byte[]) =
+        data.Length = 4 && Text.Encoding.ASCII.GetString(data) = "RECV"
+
     let private handleHandshake (udp: UdpClient) (remote: IPEndPoint) (data: byte[]) =
-        match data.Length with
-        | 4 when Text.Encoding.ASCII.GetString(data) = "RECV" ->
+        if validateHandshake data then
             udp.SendAsync(Text.Encoding.ASCII.GetBytes("REDY"), 4, remote) |> ignore
             true
-        | _ -> false
+        else
+            false
     
     let stop() =
         cts |> Option.iter _.Cancel()
-        receiveTask |> Option.iter (fun t -> try t.Wait(1000) |> ignore with _ -> ())
-        udpClient |> Option.iter (fun u -> try u.Close(); u.Dispose() with _ -> ())
+        receiveTask |> Option.iter (fun t -> try t.Wait(1000) |> ignore with ex -> printfn "Task wait error: %s" ex.Message)
+        udpClient |> Option.iter (fun u -> try u.Close(); u.Dispose() with ex -> printfn "UDP close error: %s" ex.Message)
         udpClient <- None
         cts <- None
         receiveTask <- None
@@ -188,7 +196,53 @@ module AudioOutputs =
         try
             use engine = new MiniAudioEngine()
             engine.PlaybackDevices |> Seq.map _.Name |> Seq.toArray
-        with _ -> [||]
+        with ex -> printfn "Audio device list error: %s" ex.Message; [||]
+
+
+module Discovery =
+    open System.Threading.Tasks
+
+    let broadcastPort = 50007
+    let marker = "AURORAMIC"
+
+    let formatDiscoveryMessage (audioPort: int) = $"{marker}:{audioPort}"
+
+    let parseDiscoveryMessage (text: string) =
+        if text.StartsWith(marker) then
+            let parts = text.Split(':')
+            if parts.Length = 2 then
+                match Int32.TryParse(parts.[1]) with
+                | true, port -> Some port
+                | _ -> None
+            else None
+        else None
+
+    let mutable private cts: CancellationTokenSource option = None
+    let mutable private broadcastTask: Task option = None
+
+    let stop() =
+        cts |> Option.iter _.Cancel()
+        cts <- None
+        broadcastTask <- None
+
+    let start (audioPort: int) =
+        stop()
+        let source = new CancellationTokenSource()
+        let task = task {
+            use udp = new UdpClient()
+            udp.EnableBroadcast <- true
+            let endpoint = IPEndPoint(IPAddress.Broadcast, broadcastPort)
+            let message = System.Text.Encoding.ASCII.GetBytes(formatDiscoveryMessage audioPort)
+            while not source.Token.IsCancellationRequested do
+                try
+                    udp.Send(message, message.Length, endpoint) |> ignore
+                    do! Task.Delay(1000, source.Token)
+                with
+                | :? OperationCanceledException -> ()
+                | ex -> printfn "Discovery broadcast error: %s" ex.Message
+        }
+        cts <- Some source
+        broadcastTask <- Some task
 
 
 module MainView =
@@ -270,10 +324,12 @@ module MainView =
                         AudioEngine.stop()
                         errorMsg.Set msg
                     | Ok() ->
+                        Discovery.start port.Current
                         isRunning.Set true
                         errorMsg.Set ""
             
             let stopServer() =
+                Discovery.stop()
                 NetworkServer.stop()
                 AudioEngine.stop()
                 isRunning.Set false

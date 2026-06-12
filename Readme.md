@@ -1,64 +1,111 @@
 # AuroraMic
 
-Use your Android phone as a wireless microphone on your Desktop.
+Use your Android phone as a wireless microphone for your desktop computer.
+
+[![Build](https://github.com/DeltaBitsSystem/AuroraMic/actions/workflows/ci.yml/badge.svg)](https://github.com/DeltaBitsSystem/AuroraMic/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![.NET 10](https://img.shields.io/badge/.NET-10-purple.svg)](https://dotnet.microsoft.com/)
 
 ## Screenshots
 
-![Server Board](Screenshots/1.png)
-![Client Board](Screenshots/2.png)
+![Server](Screenshots/1.png)
+![Client](Screenshots/2.png)
 
-## How it works
+## Features
 
-The Android app captures audio from the microphone and streams it over UDP to the desktop server, which plays it back through any output device on the PC. A handshake ensures the server is ready before streaming begins.
+- Use any Android phone as a wireless microphone
+- Streams audio over UDP on your local network
+- 48kHz mono float32 audio quality
+- Under 100ms latency on the same LAN
+- Foreground service keeps streaming alive in the background
+- Works on Windows, Linux, and Android
+- No internet connection required
+
+## Quick Start
+
+1. Run `AuroraMic` on your desktop (Windows or Linux)
+2. Select an audio output device and click **Start Server**
+3. Note the IP address displayed in the app
+4. Open AuroraMic on your Android phone
+5. The server is **auto-discovered** -- tap its IP in the list
+6. Or enter the server IP manually and tap **Start Microphone**
+
+The phone mic audio now plays through your desktop speakers.
+
+### Linux Install (CachyOS / Arch)
+
+```bash
+./install-linux.sh
+auroramic-server
+```
+
+This installs a launcher to `~/.local/bin/auroramic-server` and a desktop entry
+so AuroraMic appears in your application menu.
+
+## Linux Virtual Audio Setup
+
+On Linux, AuroraMic server plays audio to a PulseAudio/PipeWire sink. To route this
+audio into applications like OBS, Discord, or DAWs, you need to create a virtual
+microphone source.
+
+### Setup
+
+Run these commands in a terminal:
 
 ```
-[Android mic] ──UDP──▶ [Desktop server] ──▶ [speakers / headphones / virtual cable]
+pactl load-module module-null-sink sink_name=PhoneInput sink_properties=device.description="Phone_Microphone"
+pactl load-module module-remap-source master=PhoneInput.monitor source_name=PhoneMic source_properties=device.description="Phone_Mic"
 ```
 
-## Projects
+This creates a virtual microphone called "PhoneMic" that any application can use as
+an input device.
 
-| Project | Target | Description |
-|---|---|---|
-| `AuroraMic.Client` | `net10.0` | Shared client logic (audio capture + UDP streaming) |
-| `AuroraMic.Client.Android` | `net10.0-android` | Android UI + foreground service |
-| `AuroraMic.Server` | `net10.0` | Shared server logic (UDP receiver + audio playback) |
-| `AuroraMic.Server.Desktop` | `net10.0` | Desktop entry point (Windows + Linux) |
+### Make It Persistent
 
-## Requirements
+To load these modules automatically on boot, add the two `pactl load-module` lines
+to your PulseAudio configuration:
 
-**Server (Windows / Linux)**
+- PulseAudio: `~/.config/pulse/default.pa`
+- PipeWire: `~/.config/pipewire/pipewire-pulse.conf.d/auroramic.conf`
+
+### Verify
+
+Check that the virtual microphone exists:
+
+```
+pactl list sources short | grep PhoneMic
+```
+
+Then select "PhoneMic" as the input device in your application.
+
+## Building from Source
+
+### Prerequisites
+
 - .NET 10 SDK
-- A working audio output device
+- For Android builds: Android SDK, Java 17, .NET Android workload
 
-**Client (Android)**
-- Android API 35+
-- .NET 10 SDK with Android workload
-- Android SDK (set path in `.fsproj` if different from default)
-- Java 17
+### Server (Windows / Linux)
 
-Both devices must be on the same local network.
-
-## Build
-
-**Server**
 ```bash
 dotnet publish AuroraMic.Server.Desktop/AuroraMic.Server.Desktop.fsproj -c Release
 ```
 
 Output: single self-contained executable in `bin/Release/net10.0/publish/`.
 
-**Android APK**
+### Android APK
+
 ```bash
 dotnet build AuroraMic.Client.Android/AuroraMic.Client.Android.fsproj -c Release
 ```
 
+Output: APK in `bin/Release/net10.0-android/`.
 
-## Usage
+### Tests
 
-1. Run `AuroraMic` on the PC (Windows or Linux).
-2. Select the audio output device and port, then click **Start Server**.
-3. Note the IP address shown in the app.
-4. Open AuroraMic on Android, enter the server IP and port, tap **Start Microphone**.
+```bash
+dotnet test AuroraMic.Tests/
+```
 
 ## Configuration
 
@@ -71,28 +118,55 @@ The server saves settings to `settings.json` next to the executable:
 }
 ```
 
-Default port: `50006`. Valid range: `1024–65535`.
+Default port: `50006`. Valid range: `1024` to `65535`.
 
-## Android permissions
+The client remembers the last server IP and port between sessions.
 
-The app requests the following at runtime:
+## Architecture
 
-| Permission | Reason |
-|---|---|
-| `RECORD_AUDIO` | Microphone capture |
-| `POST_NOTIFICATIONS` | Foreground service notification (Android 13+) |
+```
+[Android mic]
+    |
+    v (48kHz mono float32)
+[Android App - AuroraMic.Client]
+    |
+    v (UDP datagrams)
+[Network - WiFi / LAN]
+    |
+    v (UDP receive)
+[Desktop Server - AuroraMic.Server]
+    |
+    v (QueueDataProvider -> SoundPlayer)
+[Output Device]
+    |
+    +---> [Speakers / Headphones]
+    |
+    +---> [Virtual Cable / Null Sink] ---> [OBS / Discord / DAW]
 
-`INTERNET`, `FOREGROUND_SERVICE`, and `FOREGROUND_SERVICE_MICROPHONE` are declared in the manifest.
+Discovery:
+  Server broadcasts "AURORAMIC:<port>" on UDP 50007 every second.
+  Client listens on UDP 50007, auto-discovers servers on the LAN.
+```
 
-## Stack
+### Protocol
 
-- **F#** / **.NET 10**
-- **Avalonia 11** + **Avalonia.FuncUI** — UI (desktop + Android)
-- **SoundFlow 1.4** — audio capture and playback via MiniAudio backend
+| Step | Client | Server |
+|---|---|---|
+| 0 | Listens on UDP 50007 | Broadcasts `AURORAMIC:<audioPort>` on UDP 50007 |
+| 1 | Sends "RECV" (4 bytes UDP) | Receives handshake |
+| 2 | Waits for response | Sends "REDY" (4 bytes UDP) |
+| 3 | Starts streaming audio | Starts playing audio |
 
+### Projects
 
+| Project | Target | Description |
+|---|---|---|
+| `AuroraMic.Server` | `net10.0` | Shared server logic (UDP receiver + audio playback) |
+| `AuroraMic.Server.Desktop` | `net10.0` | Desktop entry point (Windows + Linux) |
+| `AuroraMic.Client` | `net10.0` | Shared client logic (audio capture + UDP streaming) |
+| `AuroraMic.Client.Android` | `net10.0-android` | Android UI + foreground service |
+| `AuroraMic.Tests` | `net10.0` | Unit and integration tests |
 
-## Tips
+## License
 
-- Use a virtual audio cable as the output device on the server to route the mic into any app (DAW, OBS, Discord, etc.). On Windows: VB-Cable. On Linux: a PulseAudio/PipeWire null sink.
-- The foreground service keeps streaming alive when the Android app is in the background.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

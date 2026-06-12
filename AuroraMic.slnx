@@ -3,4 +3,5 @@
   <Project Path="AuroraMic.Client/AuroraMic.Client.fsproj" />
   <Project Path="AuroraMic.Server.Desktop/AuroraMic.Server.Desktop.fsproj" />
   <Project Path="AuroraMic.Server/AuroraMic.Server.fsproj" />
+  <Project Path="AuroraMic.Tests/AuroraMic.Tests.fsproj" />
 </Solution>

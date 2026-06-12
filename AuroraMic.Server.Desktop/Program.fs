@@ -8,6 +8,11 @@ module Program =
 
    [<EntryPoint>]
     let main(args: string[]) =
+        AppDomain.CurrentDomain.ProcessExit.Add(fun _ ->
+            Discovery.stop()
+            NetworkServer.stop()
+            AudioEngine.stop()
+        )
         AppBuilder
             .Configure<App>()
             .UsePlatformDetect()

@@ -8,7 +8,7 @@ open Avalonia
 open Avalonia.Android
 open AuroraMic.Client
 
-[<Service(Name = "com.CompanyName.AvaloniaTest.AudioStreamingService", ForegroundServiceType = ForegroundService.TypeMicrophone)>]
+[<Service(Name = "com.auroramic.app.AudioStreamingService", ForegroundServiceType = ForegroundService.TypeMicrophone)>]
 type AudioStreamingService() =
     inherit Service()
     
@@ -24,6 +24,11 @@ type AudioStreamingService() =
         let notification = this.BuildNotification()
         this.StartForeground(1, notification, ForegroundService.TypeMicrophone)
         StartCommandResult.Sticky
+
+    override this.OnDestroy() =
+        base.OnDestroy()
+        if AndroidMic.isRunning() then
+            AndroidMic.stop()
     
     member private this.CreateNotificationChannel() =
         if Build.VERSION.SdkInt >= BuildVersionCodes.O then
